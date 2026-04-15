@@ -1,0 +1,52 @@
+# ============================================================
+#  gemma4 + NVIDIA Quadro T2000 (Max-Q, 4 GiB VRAM) 专用配置
+#
+#  实测数据(来自 server.log):
+#    - num_gpu=5  : offloaded 5/31 layers, CUDA0=2.7 GiB,
+#                   /api/generate ≈ 12s  ✅ 健康
+#    - num_gpu=20 : CUDA0 声明 10 GiB,实际只有 4 GiB,
+#                   剩余 ~6 GiB 被 WDDM 吐到"共享 GPU 内存",
+#                   /api/chat ≈ 231s     ❌ 反而比纯 CPU 慢
+#
+#  使用:
+#    ollama create gemma4-t2000 -f modelfiles/gemma4-t2000.Modelfile
+#    ollama run    gemma4-t2000
+#
+#  调优口诀:
+#    盯 nvidia-smi 的 Dedicated Memory,只要还 free 就能加 num_gpu;
+#    任务管理器"共享 GPU 内存"一上涨,立刻退回上一档。
+# ============================================================
+
+# 把 tag 换成 `ollama list` 里你本机实际存在的名字
+FROM gemma4:latest
+
+# ---------- 显存/算力(最关键) ----------
+# 上下文窗口:T2000 只有 ~3.4 GiB 可用,4096 是稳妥值。
+# 想要更长上下文就必须同步下调 num_gpu,二者此消彼长。
+PARAMETER num_ctx 4096
+
+# offload 到 GPU 的层数(模型共 31 层)。
+# 5 是自动估算的安全值;手动可试 6 / 7,再高必踩共享内存陷阱。
+PARAMETER num_gpu 5
+
+# CPU 线程:本机 6 核 12 线程,取物理核数 6 通常比 12 更快。
+PARAMETER num_thread 6
+
+# prompt 处理批大小。显存紧张时保持默认 512。
+PARAMETER num_batch 512
+
+# ---------- 生成参数(按需调) ----------
+PARAMETER temperature     0.7
+PARAMETER top_p           0.9
+PARAMETER top_k           40
+PARAMETER repeat_penalty  1.1
+PARAMETER num_predict     -1
+
+# ============================================================
+#  下列开关只能通过环境变量设置,不能写进 Modelfile
+#  设置后需在托盘退出 Ollama 再启动才生效:
+#
+#    OLLAMA_FLASH_ATTENTION = 1        # 启用 Flash Attention
+#    OLLAMA_KV_CACHE_TYPE   = q8_0     # KV cache 量化,省约一半显存
+#    OLLAMA_KEEP_ALIVE      = 30m      # 模型驻留显存时间,避免频繁重载
+# ============================================================
